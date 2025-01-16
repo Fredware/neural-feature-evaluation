@@ -16,7 +16,7 @@ selected_finger_movements = [1,2,3,4,5,6];
 selected_participants = [1:4]; % Array of indices, where S5:(1), S6:(2), S7:(3), S8:(4)
 selected_datasets = [0];  % Use 0 to use all data sets. Total number of datasets for each sheet = [102,164,155,71]
 
-originalDir = 'C:\Users\Bret Mecham\Lab\Bret';
+% originalDir = 'C:\Users\Bret Mecham\Lab\Bret';
 pipeline_directory = pwd;
 output_directory = fullfile("..\..\results");
 dataset_database = "C:\Users\Fredi Mino\Documents\research-projects\neural-features-embc-2025\data\database-01-dof.xlsx";
@@ -80,43 +80,44 @@ for sheet_number = selected_participants
         [neural_data_ns5, neural_baseline_ns5, nip_time_baseline] = load_ns5_baseline(strcat(datasetPath, '\'), ns5_file, kdf_baseline_file, nip_time_kdf);
 
         % Clear old dataset data
-        clear AllFeatures Flexion Extension Both
+        clear all_features Flexion Extension Both
 
         % Generate Neural Features
-        nfr_features = makeNeuralFeatures_NS5(nfr_spike_threshold, nip_time_kdf, nip_time_baseline, neural_data_ns5, neural_baseline_ns5);
-        mav_features = makeRollingPowerFeatures_zmh(nip_time_kdf, nip_time_baseline, neural_data_ns5, neural_baseline_ns5, mav_kernel_width);
+        nfr_features = bhm_nfr.makeNeuralFeatures_NS5(nfr_spike_threshold, nip_time_kdf, nip_time_baseline, neural_data_ns5, neural_baseline_ns5);
+        mav_features = zmh_mav.makeRollingPowerFeatures_zmh(nip_time_kdf, nip_time_baseline, neural_data_ns5, neural_baseline_ns5, mav_kernel_width);
         dwt_thresh = frm_wavedec.compute_dwt_thresholds(neural_baseline_ns5);
         dwt_features = frm_wavedec.compute_dwt_features(nip_time_kdf, neural_data_ns5, dwt_thresh)';% Transpose to match existing code
 
         % AllFeatures = [SpikeRates;MAVs; dwt_features];
-        AllFeatures = [nfr_features; mav_features; dwt_features];
+        all_features = [nfr_features; mav_features; dwt_features];
 
         % Find used Kinematics
-        GoodUsedK = [];
+        valid_kinematic_idxs = [];
         for j = selected_finger_movements
             if sum(find(kinematics(j,:)))
-                GoodUsedK = [GoodUsedK, j];
+                valid_kinematic_idxs = [valid_kinematic_idxs, j];
             end
         end
 
-        % Sperate training and testing sections for just combined movements
-        [CombTrainMask, CombTestMask] = separateTrials(nfr_features,kinematics(GoodUsedK,:),trial_struct,nip_time_kdf,1,1,0.75);
-        [TrainMask, TestMask] = separateTrials(nfr_features,kinematics(GoodUsedK,:),trial_struct,nip_time_kdf,0,0,0.75);
+        % Separate training and testing sections for just combined movements
+        [CombTrainMask, CombTestMask] = project_utils.separateTrials_bhm(nfr_features,kinematics(valid_kinematic_idxs,:),trial_struct,nip_time_kdf,1,1,0.75);
+        [TrainMask, TestMask] = project_utils.separateTrials_bhm(nfr_features,kinematics(valid_kinematic_idxs,:),trial_struct,nip_time_kdf,0,0,0.75);
         CombTrainMask = logical(CombTrainMask - TrainMask);
         CombTestMask = logical(CombTestMask - TestMask);
         FlCombTrainMask = CombTrainMask;
         ExCombTrainMask = CombTrainMask;
         FlCombTestMask = CombTestMask;
         ExCombTestMask = CombTestMask;
+
     try
         % Isolate Flexions and Extensions in Training Mask
-        [FlCombTrainMask,ExCombTrainMask,BothCombTrainMask] = IsolateMask(CombTrainMask,FlCombTrainMask,ExCombTrainMask,kinematics,GoodUsedK(1));
+        [FlCombTrainMask,ExCombTrainMask,BothCombTrainMask] = project_utils.isolate_mask_bhm(CombTrainMask,FlCombTrainMask,ExCombTrainMask,kinematics,valid_kinematic_idxs(1));
         % Isolate Flexions and Extensions in Testing Mask
-        [FlCombTestMask,ExCombTestMask,BothCombTestMask] = IsolateMask(CombTestMask,FlCombTestMask,ExCombTestMask,kinematics,GoodUsedK(1));
+        [FlCombTestMask,ExCombTestMask,BothCombTestMask] = project_utils.isolate_mask_bhm(CombTestMask,FlCombTestMask,ExCombTestMask,kinematics,valid_kinematic_idxs(1));
 
         % Get Combined Flexion RMSEs
         if sum(FlCombTrainMask)
-            [Flexion{13,1},Flexion{13,2},Flexion{13,3},Flexion{13,4},Flexion{13,5},Flexion{13,6},Flexion{13,7},Flexion{13,8},Flexion{13,9}, Flexion{13,10}] = Chans2RMSE(kinematics, nfr_features, mav_features, dwt_features, GoodUsedK(1), FlCombTrainMask, FlCombTestMask, gs_max_chans, gs_correlation);
+            [Flexion{13,1},Flexion{13,2},Flexion{13,3},Flexion{13,4},Flexion{13,5},Flexion{13,6},Flexion{13,7},Flexion{13,8},Flexion{13,9}, Flexion{13,10}] = Chans2RMSE(kinematics, nfr_features, mav_features, dwt_features, valid_kinematic_idxs(1), FlCombTrainMask, FlCombTestMask, gs_max_chans, gs_correlation);
         else
             for m = 1:9
                 Flexion{13,m} = [];
@@ -126,7 +127,7 @@ for sheet_number = selected_participants
 
         % Get Combined Extension RMSEs
         if sum(ExCombTrainMask)
-            [Extension{13,1},Extension{13,2},Extension{13,3},Extension{13,4},Extension{13,5},Extension{13,6},Extension{13,7},Extension{13,8},Extension{13,9}, Extension{13,10}] = Chans2RMSE(kinematics, nfr_features, mav_features, dwt_features, GoodUsedK(1), ExCombTrainMask, ExCombTestMask, gs_max_chans, gs_correlation);
+            [Extension{13,1},Extension{13,2},Extension{13,3},Extension{13,4},Extension{13,5},Extension{13,6},Extension{13,7},Extension{13,8},Extension{13,9}, Extension{13,10}] = Chans2RMSE(kinematics, nfr_features, mav_features, dwt_features, valid_kinematic_idxs(1), ExCombTrainMask, ExCombTestMask, gs_max_chans, gs_correlation);
         else
             for m = 1:9
                 Extension{13,m} = [];
@@ -135,14 +136,14 @@ for sheet_number = selected_participants
 
         % Get Combined Flexing/Extension RMSEs
         if sum(FlCombTrainMask) && sum(ExCombTrainMask) % Must have Flexions and Extensions
-            [Both{13,1},Both{13,2},Both{13,3},Both{13,4},Both{13,5},Both{13,6},Both{13,7},Both{13,8},Both{13,9}, Both{13,10}] = Chans2RMSE(kinematics, nfr_features, mav_features, dwt_features, GoodUsedK(1), BothCombTrainMask, BothCombTestMask, gs_max_chans, gs_correlation);
+            [Both{13,1},Both{13,2},Both{13,3},Both{13,4},Both{13,5},Both{13,6},Both{13,7},Both{13,8},Both{13,9}, Both{13,10}] = Chans2RMSE(kinematics, nfr_features, mav_features, dwt_features, valid_kinematic_idxs(1), BothCombTrainMask, BothCombTestMask, gs_max_chans, gs_correlation);
         else
             for m = 1:9
                 Both{13,m} = [];
             end
         end
         close all
-        for j = GoodUsedK
+        for j = valid_kinematic_idxs
             % Sperate training and testing sections
             [TrainMask, TestMask] = separateTrials(nfr_features,kinematics(j,:),trial_struct,nip_time_kdf,0,0,0.75);
             % Initialize Flexion and Extension Masks
@@ -224,7 +225,7 @@ for sheet_number = selected_participants
                 hold on
                 plot(Flexion{13,4})
                 hold on
-                plot(kinematics(GoodUsedK(1),FlCombTestMask))
+                plot(kinematics(valid_kinematic_idxs(1),FlCombTestMask))
                 legend('Spike','MAV','Kin')
                 title(['Test Mask of Combined Flexion ', num2str(13)])
             end
@@ -235,7 +236,7 @@ for sheet_number = selected_participants
                 hold on
                 plot(Extension{13,4})
                 hold on
-                plot(kinematics(GoodUsedK(1),ExCombTestMask))
+                plot(kinematics(valid_kinematic_idxs(1),ExCombTestMask))
                 legend('Spike','MAV','Kin')
                 title(['Test Mask of Combined Extension ', num2str(13)])
             end
@@ -246,7 +247,7 @@ for sheet_number = selected_participants
                 hold on
                 plot(Both{13,4})
                 hold on
-                plot(kinematics(GoodUsedK(1),BothCombTestMask))
+                plot(kinematics(valid_kinematic_idxs(1),BothCombTestMask))
                 legend('Spike','MAV','Kin')
                 title(['Test Mask of Combined Flexion and Extension ', num2str(13)])
             end
@@ -256,11 +257,11 @@ for sheet_number = selected_participants
     % MAV1Data: KDF name, AllFeatures, Channels Used, Flexion RMSEs, Extension RMSEs, Both RMSEs
     % Flexion/Extension/Both: SpikeChans, MAVChans, SpikeXhat, MAVXhat, SpikeRMSEs, MAVRMSEs
         MAV1Data{sheet_number}{participant_dataset,1} = kdf_filename;
-        MAV1Data{sheet_number}{participant_dataset,2} = AllFeatures;
+        MAV1Data{sheet_number}{participant_dataset,2} = all_features;
         if sum(FlCombTrainMask)
-            MAV1Data{sheet_number}{participant_dataset,3} = [GoodUsedK 13];
+            MAV1Data{sheet_number}{participant_dataset,3} = [valid_kinematic_idxs 13];
         else
-            MAV1Data{sheet_number}{participant_dataset,3} = GoodUsedK;
+            MAV1Data{sheet_number}{participant_dataset,3} = valid_kinematic_idxs;
         end
         MAV1Data{sheet_number}{participant_dataset,4} = Flexion;
         MAV1Data{sheet_number}{participant_dataset,5} = Extension;
@@ -299,10 +300,10 @@ function [DNeural, NeuralBNS5, BNIPTime] = load_ns5_baseline(path, file, BKDFFil
     NS2File = regexprep(NS5File,'.ns5','.ns2');
     RecStartFile = fullfile(path, ['RecStart_', path(end-15:end-1), '.mat']);
     try
-        NIPOffset = CalculateNIPOffset(NS2File, RecStartFile);
+        NIPOffset = project_utils.CalculateNIPOffset_bhm(NS2File, RecStartFile);
     catch
         RecStartFile = fullfile(path, ['Kalman_SSStruct_', path(end-15:end-1), '.mat']); % P2015 has different RecStart.mat file
-        NIPOffset = CalculateNIPOffset(NS2File, RecStartFile);
+        NIPOffset = project_utils.CalculateNIPOffset_bhm(NS2File, RecStartFile);
     end
     Range = [KDFNIPTime(1),KDFNIPTime(end)] + NIPOffset;  %%% NIP Offset is the number of NS2 samples leading the KDF
     disp('Reading Neural Data from NS5 file')
@@ -380,16 +381,4 @@ function [FlMask, ExMask, Mask] = IsolateMask(Mask,FlMask,ExMask,Kinematics,Chos
             Mask(wind) = zeros(1,numel(wind));   % Get rid of 0 and Extensions for Flexion Train Mask
         end
     end
-%         figure
-%     plot(Kinematics(ChosenKins,:))
-%     hold on
-%     plot(FlMask)
-%         figure
-%     plot(Kinematics(ChosenKins,:))
-%     hold on
-%     plot(ExMask)
-%         figure
-%     plot(Kinematics(ChosenKins,:))
-%     hold on
-%     plot(Mask)
 end
